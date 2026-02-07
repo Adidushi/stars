@@ -1,19 +1,27 @@
-
+"""Training pipeline for inner planets (Mercury, Venus, Mars) geocentric prediction models."""
 import sys
 import os
+from datetime import datetime, timedelta
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 from sklearn.preprocessing import StandardScaler
 
 # Ensure we can import stars_utils from current directory
 sys.path.append(os.getcwd())
 import stars_utils
 
-def run_planet_pipeline(target_planet):
+
+def run_planet_pipeline(target_planet: str) -> None:
+    """
+    Run the complete pipeline for a single planet: data generation, training, and visualization.
+    
+    Args:
+        target_planet: Name of the planet (e.g., 'mercury', 'venus', 'mars')
+    """
     print(f"\n🚀 STARTING PIPELINE FOR: {target_planet.upper()} 🚀")
     
     # --- 1. DATA GENERATION ---
@@ -30,11 +38,11 @@ def run_planet_pipeline(target_planet):
         return
 
     df = stars_utils.add_astronomy_features(df, target_planet)
-    df.fillna(method='bfill', inplace=True)
+    df.bfill(inplace=True)
     
     # Save Data
-    if not os.path.exists('data'): os.makedirs('data', exist_ok=True)
-    csv_path = f'data/{target_planet}_processed.csv' # Saved to data/
+    os.makedirs('data', exist_ok=True)
+    csv_path = f'data/{target_planet}_processed.csv'
     df.to_csv(csv_path, index=False)
     print(f"[{target_planet}] Data saved to {csv_path}")
 
@@ -114,8 +122,10 @@ def run_planet_pipeline(target_planet):
     print(f"[{target_planet}] Training Done. Final Val Loss: {final_loss:.6f}")
     
     # Save Model
+    os.makedirs('models', exist_ok=True)
     model_path = f'models/{target_planet}_geocentric.keras'
     model.save(model_path)
+    print(f"[{target_planet}] Model saved to {model_path}")
     
     # --- 4. EVALUATE & VISUALIZE ---
     print(f"[{target_planet}] Visualizing...")
@@ -154,6 +164,7 @@ def run_planet_pipeline(target_planet):
     ))
     
     fig.update_layout(title=f"Geocentric {target_planet.capitalize()} (MAE: {mae:.4f} AU)", template='plotly_dark')
+    os.makedirs('visualizations', exist_ok=True)
     viz_path = f'visualizations/{target_planet}_viz.html'
     fig.write_html(viz_path)
     print(f"[{target_planet}] Saved {viz_path}")

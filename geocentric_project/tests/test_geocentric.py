@@ -1,4 +1,14 @@
+"""
+Comprehensive test suite for the Geocentric Orbit Prediction project.
 
+This test module validates:
+- Core dependencies and imports
+- Project structure and file organization
+- Data generation logic and schema
+- Physics calculations (Keplerian mechanics)
+- Error handling for invalid inputs
+- Security checks for suspicious files
+"""
 import unittest
 import sys
 import os
