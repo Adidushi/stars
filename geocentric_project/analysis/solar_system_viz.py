@@ -1,6 +1,13 @@
+"""
+Solar system visualization module for displaying geocentric predictions of inner planets.
 
+This module creates interactive 3D visualizations comparing true planetary positions
+with model predictions for Mercury, Venus, and Mars.
+"""
 import sys
 import os
+from typing import Optional, List
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -12,14 +19,38 @@ from sklearn.preprocessing import StandardScaler
 sys.path.append(os.getcwd())
 import stars_utils
 
-def safe_load_df(planet):
+
+def safe_load_df(planet: str) -> Optional[pd.DataFrame]:
+    """
+    Safely load a processed planet dataset from CSV.
+    
+    Args:
+        planet: Name of the planet (e.g., 'mars', 'venus')
+        
+    Returns:
+        DataFrame if file exists, None otherwise
+    """
     path = f'data/{planet}_processed.csv'
     if os.path.exists(path):
         return pd.read_csv(path)
     print(f"Warning: {path} not found.")
     return None
 
-def get_features_for_planet(df, target_planet):
+
+def get_features_for_planet(df: pd.DataFrame, target_planet: str) -> List[str]:
+    """
+    Get the feature list for a given planet based on available columns.
+    
+    Replicates the feature selection logic from train_inner_planets.py to ensure
+    consistency between training and prediction.
+    
+    Args:
+        df: DataFrame containing the processed planet data
+        target_planet: Name of the target planet
+        
+    Returns:
+        List of feature column names
+    """
     # Replicate logic from train_inner_planets.py
     features = [
         'Time_Index', 'Time_Index_2',
@@ -42,7 +73,14 @@ def get_features_for_planet(df, target_planet):
             
     return features
 
-def create_solar_system_viz():
+def create_solar_system_viz() -> None:
+    """
+    Create an interactive 3D visualization of the inner solar system.
+    
+    This function loads trained models for Mercury, Venus, and Mars, makes predictions
+    on their processed data, and creates a combined 3D plot showing both true and
+    predicted trajectories in geocentric coordinates.
+    """
     print("🌟 Generating Combined Solar System Visualization...")
     fig = go.Figure()
     
@@ -155,6 +193,7 @@ def create_solar_system_viz():
         margin=dict(l=0, r=0, b=0, t=40)
     )
     
+    os.makedirs('visualizations', exist_ok=True)
     out_file = "visualizations/inner_solar_system_viz.html"
     fig.write_html(out_file)
     print(f"\n✨ Combined Visualization Saved: {out_file} ✨")

@@ -194,17 +194,36 @@ PLANET_PERIODS = {
 }
 
 class CustomEpochLogger(tf.keras.callbacks.Callback):
-    """Logs epoch and loss every N steps instead of every step."""
-    def __init__(self, log_step):
+    """Custom callback that logs epoch progress at specified intervals.
+    
+    This callback reduces console output by only printing metrics every N epochs,
+    making it easier to monitor long-running training sessions.
+    
+    Args:
+        log_step: Frequency of logging (e.g., 10 means log every 10 epochs)
+    """
+    def __init__(self, log_step: int = 10):
         super().__init__()
         self.log_step = log_step
+        if log_step < 1:
+            raise ValueError(f"log_step must be >= 1, got {log_step}")
 
-    def on_epoch_end(self, epoch, logs=None):
-        """Prints loss and validation loss every 'log_step' epochs."""
+    def on_epoch_end(self, epoch: int, logs: dict = None) -> None:
+        """Prints loss and validation loss every 'log_step' epochs.
+        
+        Args:
+            epoch: Current epoch number (0-indexed)
+            logs: Dictionary containing training metrics
+        """
+        if logs is None:
+            logs = {}
+            
         if (epoch + 1) % self.log_step == 0:
             # Safely check for 'val_loss' which might not be present in the first few epochs
             val_loss = logs.get('val_loss', float('nan'))
-            print(f"Epoch {epoch + 1}/{self.params['epochs']} - Loss: {logs['loss']:.6f} - Val Loss: {val_loss:.6f}")
+            train_loss = logs.get('loss', float('nan'))
+            total_epochs = self.params.get('epochs', 'unknown')
+            print(f"Epoch {epoch + 1}/{total_epochs} - Loss: {train_loss:.6f} - Val Loss: {val_loss:.6f}")
 
 
 def save_scaler(scaler: StandardScaler, filepath: str):
@@ -665,15 +684,29 @@ def xyz_to_radec(pred_au: np.ndarray) -> pd.DataFrame:
     
     return results_df
 
-def get_angular_error_arcsec(df, ts):
+def get_angular_error_arcsec(df: pd.DataFrame, ts) -> np.ndarray:
     """
     Calculates the 3D positional error magnitude in AU.
     
-    NOTE: Calculating true angular separation requires a full ephemeris load and 
-    observer definition, which is complex here. We report the magnitude of the 
-    positional error vector in AU as a primary metric.
+    Args:
+        df: DataFrame containing both actual and predicted XYZ coordinates
+        ts: Skyfield timescale (currently unused but kept for API compatibility)
+        
+    Returns:
+        Array of position errors in AU
+    
+    Note:
+        Calculating true angular separation requires a full ephemeris load and 
+        observer definition, which is complex. We report the magnitude of the 
+        positional error vector in AU as a primary metric.
     """
     print("Calculating 3D positional error magnitude...")
+    
+    # Validate required columns exist
+    required_cols = ['X_au', 'Y_au', 'Z_au', 'X_pred', 'Y_pred', 'Z_pred']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
     
     # Ground Truth Positions
     actual_xyz_au = df[['X_au', 'Y_au', 'Z_au']].values.T

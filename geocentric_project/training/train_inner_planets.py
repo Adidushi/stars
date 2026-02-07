@@ -169,6 +169,26 @@ def run_planet_pipeline(target_planet: str) -> None:
     fig.write_html(viz_path)
     print(f"[{target_planet}] Saved {viz_path}")
 
+
 if __name__ == "__main__":
     for planet in ['mercury', 'venus', 'mars']:
         run_planet_pipeline(planet)
+
+
+def main():
+    """Entry point for console script."""
+    import sys
+    
+    # Allow running specific planets or all
+    if len(sys.argv) > 1:
+        planets = [p.lower() for p in sys.argv[1:]]
+        for planet in planets:
+            if planet not in ['mercury', 'venus', 'mars']:
+                print(f"Warning: {planet} is not a supported inner planet. Skipping.")
+                continue
+            run_planet_pipeline(planet)
+    else:
+        # Run all inner planets by default
+        for planet in ['mercury', 'venus', 'mars']:
+            run_planet_pipeline(planet)
+
