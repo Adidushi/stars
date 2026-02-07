@@ -2,7 +2,6 @@
 > **Data Science & Physics Project: Predicting Star Locations with Neural Networks, Math, and General Relativity.**
 
 [![Status](https://img.shields.io/badge/Status-Complete-success.svg)]()
-[![Physics](https://img.shields.io/badge/Physics-Relativistic-blueviolet.svg)]()
 [![Precision](https://img.shields.io/badge/MAE-%3C0.005_AU-green.svg)]()
 
 A high-precision AI model that predicts the geocentric (Earth-relative) positions of **Mercury**, **Venus**, and **Mars**. It combines classical Keplerian mechanics with **Deep Residual Learning** to correct for complex N-Body gravitational perturbations and relativistic light-time delays.
