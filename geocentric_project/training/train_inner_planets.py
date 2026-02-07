@@ -189,8 +189,6 @@ if __name__ == "__main__":
 
 def main():
     """Entry point for console script."""
-    import sys
-    
     # Allow running specific planets or all
     if len(sys.argv) > 1:
         planets = [p.lower() for p in sys.argv[1:]]
@@ -204,5 +202,6 @@ def main():
         # Run all inner planets by default
         for planet in config.INNER_PLANETS:
             run_planet_pipeline(planet)
+
 
 
