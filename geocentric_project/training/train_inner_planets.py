@@ -1,19 +1,28 @@
-
+"""Training pipeline for inner planets (Mercury, Venus, Mars) geocentric prediction models."""
 import sys
 import os
+from datetime import datetime, timedelta
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 from sklearn.preprocessing import StandardScaler
 
 # Ensure we can import stars_utils from current directory
 sys.path.append(os.getcwd())
 import stars_utils
+import config
 
-def run_planet_pipeline(target_planet):
+
+def run_planet_pipeline(target_planet: str) -> None:
+    """
+    Run the complete pipeline for a single planet: data generation, training, and visualization.
+    
+    Args:
+        target_planet: Name of the planet (e.g., 'mercury', 'venus', 'mars')
+    """
     print(f"\n🚀 STARTING PIPELINE FOR: {target_planet.upper()} 🚀")
     
     # --- 1. DATA GENERATION ---
@@ -30,11 +39,11 @@ def run_planet_pipeline(target_planet):
         return
 
     df = stars_utils.add_astronomy_features(df, target_planet)
-    df.fillna(method='bfill', inplace=True)
+    df.bfill(inplace=True)
     
     # Save Data
-    if not os.path.exists('data'): os.makedirs('data', exist_ok=True)
-    csv_path = f'data/{target_planet}_processed.csv' # Saved to data/
+    os.makedirs('data', exist_ok=True)
+    csv_path = f'data/{target_planet}_processed.csv'
     df.to_csv(csv_path, index=False)
     print(f"[{target_planet}] Data saved to {csv_path}")
 
@@ -73,8 +82,8 @@ def run_planet_pipeline(target_planet):
     X = df[features].values
     y = df[TARGETS].values
     
-    # Split
-    split = int(len(df) * 0.8)
+    # Split using config constant
+    split = int(len(df) * config.TRAIN_TEST_SPLIT_RATIO)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
     
@@ -91,31 +100,39 @@ def run_planet_pipeline(target_planet):
     print(f"[{target_planet}] Training Model (High Precision)...")
     model = tf.keras.Sequential([
         layers.Input(shape=(len(features),)),
-        layers.Dense(256, activation='relu'), # Widened
-        layers.Dense(128, activation='relu'),
-        layers.Dense(64, activation='relu'),
-        layers.Dense(3, activation='linear')
+        layers.Dense(config.LAYER_SIZES[0], activation=config.ACTIVATION),
+        layers.Dense(config.LAYER_SIZES[1], activation=config.ACTIVATION),
+        layers.Dense(config.LAYER_SIZES[2], activation=config.ACTIVATION),
+        layers.Dense(config.OUTPUT_SIZE, activation='linear')
     ])
     
-    model.compile(optimizer=optimizers.Adam(learning_rate=0.001), loss='mse')
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=config.LEARNING_RATE), 
+        loss='mse'
+    )
     
     # High Precision Training
-    esc = callbacks.EarlyStopping(patience=50, restore_best_weights=True)
+    esc = callbacks.EarlyStopping(
+        patience=config.EARLY_STOPPING_PATIENCE, 
+        restore_best_weights=True
+    )
     history = model.fit(
         X_train_scaled, y_train_scaled,
         validation_data=(X_test_scaled, y_test_scaled),
-        epochs=1000,
-        batch_size=64,
+        epochs=config.MAX_EPOCHS,
+        batch_size=config.BATCH_SIZE,
         callbacks=[esc],
-        verbose=0 # Quiet training to avoid massive logs, just print result
+        verbose=0  # Quiet training to avoid massive logs, just print result
     )
     
     final_loss = history.history['val_loss'][-1]
     print(f"[{target_planet}] Training Done. Final Val Loss: {final_loss:.6f}")
     
     # Save Model
+    os.makedirs('models', exist_ok=True)
     model_path = f'models/{target_planet}_geocentric.keras'
     model.save(model_path)
+    print(f"[{target_planet}] Model saved to {model_path}")
     
     # --- 4. EVALUATE & VISUALIZE ---
     print(f"[{target_planet}] Visualizing...")
@@ -135,13 +152,16 @@ def run_planet_pipeline(target_planet):
     # Plot
     fig = go.Figure()
     
-    # Sun (for context, though it's moving in geocentric)
-    # Actually, in Geocentric, Sun orbits Earth.
-    # Let's just plot Earth at center.
-    fig.add_trace(go.Scatter3d(x=[0], y=[0], z=[0], mode='markers', marker=dict(color='blue', size=10), name='Earth'))
+    # Earth at center (geocentric frame)
+    fig.add_trace(go.Scatter3d(
+        x=[0], y=[0], z=[0], 
+        mode='markers', 
+        marker=dict(color='blue', size=10), 
+        name='Earth'
+    ))
     
     # True Orbit
-    viz_df = test_df.sample(2000).sort_index()
+    viz_df = test_df.sample(min(config.VIZ_SAMPLE_SIZE, len(test_df))).sort_index()
     fig.add_trace(go.Scatter3d(
         x=viz_df['X_au'], y=viz_df['Y_au'], z=viz_df['Z_au'], 
         mode='lines', line=dict(color='gray', width=3), name=f'True {target_planet}'
@@ -153,11 +173,35 @@ def run_planet_pipeline(target_planet):
         mode='markers', marker=dict(color='orange', size=3, opacity=0.8), name='Prediction'
     ))
     
-    fig.update_layout(title=f"Geocentric {target_planet.capitalize()} (MAE: {mae:.4f} AU)", template='plotly_dark')
+    fig.update_layout(
+        title=f"Geocentric {target_planet.capitalize()} (MAE: {mae:.4f} AU)", 
+        template=config.PLOT_STYLE
+    )
+    os.makedirs('visualizations', exist_ok=True)
     viz_path = f'visualizations/{target_planet}_viz.html'
     fig.write_html(viz_path)
     print(f"[{target_planet}] Saved {viz_path}")
 
 if __name__ == "__main__":
-    for planet in ['mercury', 'venus', 'mars']:
+    for planet in config.INNER_PLANETS:
         run_planet_pipeline(planet)
+
+
+def main():
+    """Entry point for console script."""
+    # Allow running specific planets or all
+    if len(sys.argv) > 1:
+        planets = [p.lower() for p in sys.argv[1:]]
+        for planet in planets:
+            if planet not in config.INNER_PLANETS:
+                print(f"Warning: {planet} is not a supported inner planet. Skipping.")
+                print(f"Supported planets: {', '.join(config.INNER_PLANETS)}")
+                continue
+            run_planet_pipeline(planet)
+    else:
+        # Run all inner planets by default
+        for planet in config.INNER_PLANETS:
+            run_planet_pipeline(planet)
+
+
+

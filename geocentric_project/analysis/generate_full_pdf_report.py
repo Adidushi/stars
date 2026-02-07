@@ -1,28 +1,45 @@
+"""
+Comprehensive PDF report generation for the Geocentric Orbit Prediction project.
 
+Creates a detailed multi-page PDF report with project overview, methodology,
+results, and visualizations.
+"""
 import sys
 import os
+import textwrap
+from typing import Optional
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from mpl_toolkits.mplot3d import Axes3D
 from datetime import datetime
-import textwrap
 
 # Ensure we can import stars_utils
 sys.path.append(os.getcwd())
 import stars_utils
 
-def safe_load_df(planet):
+
+def safe_load_df(planet: str) -> Optional[pd.DataFrame]:
+    """Safely load processed planet data from CSV."""
     path = f'data/{planet}_processed.csv'
     if os.path.exists(path):
         return pd.read_csv(path)
     print(f"Warning: {path} not found.")
     return None
 
-def add_text_page(pdf, title, content):
-    """Adds a text-heavy page to the PDF with a title."""
-    fig = plt.figure(figsize=(11.69, 8.27)) # A4 Landscape
+
+def add_text_page(pdf: PdfPages, title: str, content: str) -> None:
+    """
+    Adds a text-heavy page to the PDF with a title.
+    
+    Args:
+        pdf: PdfPages object to add the page to
+        title: Page title
+        content: Text content to display
+    """
+    fig = plt.figure(figsize=(11.69, 8.27))  # A4 Landscape
     plt.axis('off')
     
     # Title
@@ -43,7 +60,9 @@ def add_text_page(pdf, title, content):
     pdf.savefig(fig)
     plt.close()
 
-def generate_full_pdf_report():
+def generate_full_pdf_report() -> None:
+    """Generate a comprehensive multi-page PDF report with all project details."""
+    os.makedirs('summary', exist_ok=True)
     output_file = "summary/Geocentric_Orbit_Full_Report.pdf"
     print(f"📄 Generating Full PDF Report: {output_file}...")
     

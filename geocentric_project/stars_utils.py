@@ -1,13 +1,14 @@
-"""util file for the 'stars' project"""
+"""Utility file for the 'stars' project - Geocentric orbit prediction using physics-informed neural networks."""
 import os
+import pickle
+from datetime import datetime, timedelta
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from skyfield.api import load, utc
-import pickle
-import matplotlib as plt
-
-from datetime import datetime, timedelta
+from sklearn.preprocessing import StandardScaler
 
 # --- KEPLERIAN ELEMENTS (J2000) ---
 # Source: JPL (approximate mean elements)
@@ -50,23 +51,50 @@ ORBITAL_ELEMENTS = {
     }
 }
 
-def solve_kepler(M, e, tolerance=1e-6):
-    """Iteratively solve Kepler's Equation: M = E - e*sin(E) for Eccentric Anomaly E."""
+def solve_kepler(M: float, e: float, tolerance: float = 1e-6, max_iterations: int = 50) -> float:
+    """Iteratively solve Kepler's Equation: M = E - e*sin(E) for Eccentric Anomaly E.
+    
+    Args:
+        M: Mean anomaly (radians)
+        e: Eccentricity (0 <= e < 1)
+        tolerance: Convergence threshold
+        max_iterations: Maximum number of iterations
+        
+    Returns:
+        Eccentric anomaly E (radians)
+        
+    Raises:
+        ValueError: If eccentricity is invalid or convergence fails
+    """
+    if not (0 <= e < 1):
+        raise ValueError(f"Eccentricity must be in range [0, 1), got {e}")
+    
     E = M if e < 0.8 else np.pi
-    for _ in range(50):
+    for iteration in range(max_iterations):
         delta = E - e * np.sin(E) - M
         if abs(delta) < tolerance:
-            break
+            return E
         E = E - delta / (1 - e * np.cos(E))
-    return E
+    
+    raise ValueError(f"Kepler's equation failed to converge after {max_iterations} iterations")
 
 def get_keplerian_xyz(target_planet: str, julian_dates: np.ndarray) -> np.ndarray:
     """
     Calculate Ideal Keplerian (Heliocentric) XYZ coordinates.
-    Returns: (N, 3) numpy array.
+    
+    Args:
+        target_planet: Name of the planet (e.g., 'mars', 'earth', 'venus')
+        julian_dates: Array of Julian dates (TDB)
+        
+    Returns:
+        (N, 3) numpy array of heliocentric XYZ coordinates in AU
+        
+    Raises:
+        ValueError: If planet is not in ORBITAL_ELEMENTS dictionary
     """
     if target_planet not in ORBITAL_ELEMENTS:
-        raise ValueError(f"No Keplerian elements for {target_planet}")
+        raise ValueError(f"No Keplerian elements for {target_planet}. "
+                        f"Available planets: {list(ORBITAL_ELEMENTS.keys())}")
     
     el = ORBITAL_ELEMENTS[target_planet]
     J2000 = 2451545.0
@@ -129,6 +157,13 @@ def get_keplerian_xyz(target_planet: str, julian_dates: np.ndarray) -> np.ndarra
 def get_geocentric_keplerian_xyz(target_planet: str, julian_dates: np.ndarray) -> np.ndarray:
     """
     Calculate Ideal Geocentric XYZ (Keplerian Target - Keplerian Earth).
+    
+    Args:
+        target_planet: Name of the target planet
+        julian_dates: Array of Julian dates (TDB)
+        
+    Returns:
+        (N, 3) numpy array of geocentric XYZ coordinates in AU
     """
     # 1. Get Target Heliocentric
     target_helio = get_keplerian_xyz(target_planet, julian_dates)
@@ -139,8 +174,8 @@ def get_geocentric_keplerian_xyz(target_planet: str, julian_dates: np.ndarray) -
     # 3. Vector Subtraction (Target - Earth)
     return target_helio - earth_helio
 
-from sklearn.preprocessing import StandardScaler
 
+# Load timescale globally
 ts = load.timescale()
 
 # Define constants for feature engineering (Orbital Periods in Days)
@@ -159,17 +194,36 @@ PLANET_PERIODS = {
 }
 
 class CustomEpochLogger(tf.keras.callbacks.Callback):
-    """Logs epoch and loss every N steps instead of every step."""
-    def __init__(self, log_step):
+    """Custom callback that logs epoch progress at specified intervals.
+    
+    This callback reduces console output by only printing metrics every N epochs,
+    making it easier to monitor long-running training sessions.
+    
+    Args:
+        log_step: Frequency of logging (e.g., 10 means log every 10 epochs)
+    """
+    def __init__(self, log_step: int = 10):
         super().__init__()
         self.log_step = log_step
+        if log_step < 1:
+            raise ValueError(f"log_step must be >= 1, got {log_step}")
 
-    def on_epoch_end(self, epoch, logs=None):
-        """Prints loss and validation loss every 'log_step' epochs."""
+    def on_epoch_end(self, epoch: int, logs: dict = None) -> None:
+        """Prints loss and validation loss every 'log_step' epochs.
+        
+        Args:
+            epoch: Current epoch number (0-indexed)
+            logs: Dictionary containing training metrics
+        """
+        if logs is None:
+            logs = {}
+            
         if (epoch + 1) % self.log_step == 0:
             # Safely check for 'val_loss' which might not be present in the first few epochs
             val_loss = logs.get('val_loss', float('nan'))
-            print(f"Epoch {epoch + 1}/{self.params['epochs']} - Loss: {logs['loss']:.6f} - Val Loss: {val_loss:.6f}")
+            train_loss = logs.get('loss', float('nan'))
+            total_epochs = self.params.get('epochs', 'unknown')
+            print(f"Epoch {epoch + 1}/{total_epochs} - Loss: {train_loss:.6f} - Val Loss: {val_loss:.6f}")
 
 
 def save_scaler(scaler: StandardScaler, filepath: str):
@@ -184,7 +238,7 @@ def save_scaler(scaler: StandardScaler, filepath: str):
     except Exception as e:
         print(f"ERROR: Failed to save scaler to {filepath}: {e}")
 
-def load_scaler(filepath: str) -> StandardScaler or None:
+def load_scaler(filepath: str) -> Optional[StandardScaler]:
     """
     Loads a fitted StandardScaler object from a file using pickle.
     """
@@ -210,7 +264,26 @@ def generate_planetary_ephemeris_df(
     """
     Generates a DataFrame containing the geocentric position (RA, Dec) 
     for a given celestial body over a specified time range.
+    
+    Args:
+        target_planet: Name of the target celestial body (e.g., 'mars', 'venus')
+        start_date: Start date for data generation
+        end_date: End date for data generation
+        time_step: Time step between data points (default: 1 day)
+        ephemeris_file: Path to JPL ephemeris file (default: 'de421.bsp')
+        
+    Returns:
+        DataFrame with geocentric positions and auxiliary features
+        
+    Raises:
+        ValueError: If dates are invalid or ephemeris file cannot be loaded
     """
+    # Validate inputs
+    if end_date <= start_date:
+        raise ValueError(f"end_date ({end_date}) must be after start_date ({start_date})")
+    
+    if not os.path.exists(ephemeris_file):
+        raise FileNotFoundError(f"Ephemeris file not found: {ephemeris_file}")
     try:
         # Load the JPL ephemeris data file and timescale
         planets = load(ephemeris_file)
@@ -481,8 +554,8 @@ def add_astronomy_features(df: pd.DataFrame, target_planet: str) -> pd.DataFrame
              # ... Logic removed for brevity as we are upgrading fully ...
              pass
     
-    # Fill NaNs created by lagging (first 2 rows)
-    df.fillna(method='bfill', inplace=True)
+    # Fill NaNs created by lagging (first 2 rows) using backward fill
+    df.bfill(inplace=True)
 
     # 6. Physics: Residual Calculation (True Geocentric - Ideal Geocentric)
     print("Calculating Ideal Geocentric Keplerian Orbit...")
@@ -509,19 +582,20 @@ def models_loader(directory: str, models_lis: list, target_planet: str) -> list:
     The model filenames are expected to be prefixed by the target planet name.
     
     Args:
-        directory (str): The folder containing the Keras model files.
-        models_lis (list): A list of model suffixes (e.g., ['mm0', 'mm1', 'mm2']).
-        target_planet (str): The name of the planet the model was trained for (e.g., 'mars').
+        directory: The folder containing the Keras model files.
+        models_lis: A list of model suffixes (e.g., ['mm0', 'mm1', 'mm2']).
+        target_planet: The name of the planet the model was trained for (e.g., 'mars').
 
     Returns:
-        list: A list of loaded Keras Model objects.
+        A list of loaded Keras Model objects.
+        
+    Raises:
+        FileNotFoundError: If the directory doesn't exist
     """
-    models = []
-    
     if not os.path.exists(directory):
-        print(f"ERROR: Model directory not found: {directory}")
-        return models
+        raise FileNotFoundError(f"Model directory not found: {directory}")
     
+    models = []
     print(f"Attempting to load {len(models_lis)} models for {target_planet} from '{directory}'...")
     
     for suffix in models_lis:
@@ -565,17 +639,27 @@ def models_loader(directory: str, models_lis: list, target_planet: str) -> list:
 
     return models
 
-def xyz_to_radec(pred_au):
+def xyz_to_radec(pred_au: np.ndarray) -> pd.DataFrame:
     """
     Converts predicted equatorial rectangular coordinates (X, Y, Z in AU) 
     to Right Ascension (RA) and Declination (Dec) in degrees.
-    1. Extract Coordinates
-    2. Calculate Predicted Distance (r) where r = sqrt(X^2 + Y^2 + Z^2)
-    3. Calculate Declination (Dec) - The angle North/South where Dec = arcsin(Z / r) 
-    4. Calculate Right Ascension (RA) - The angle East/West where RA = arctan2(Y, X)
-    5. Convert Dec and RA to degrees from radians
-    6. Normalize RA to the 0 to 360 degree range (adding +360 for negative value)
+    
+    Args:
+        pred_au: Nx3 array of XYZ coordinates in AU
+        
+    Returns:
+        DataFrame with columns 'Predicted_RA_deg' and 'Predicted_Dec_deg'
+        
+    Steps:
+        1. Extract Coordinates
+        2. Calculate Predicted Distance (r) where r = sqrt(X^2 + Y^2 + Z^2)
+        3. Calculate Declination (Dec) - The angle North/South where Dec = arcsin(Z / r) 
+        4. Calculate Right Ascension (RA) - The angle East/West where RA = arctan2(Y, X)
+        5. Convert Dec and RA to degrees from radians
+        6. Normalize RA to the 0 to 360 degree range (adding +360 for negative value)
     """
+    if pred_au.shape[1] != 3:
+        raise ValueError(f"Input must have 3 columns (X, Y, Z), got shape {pred_au.shape}")
 
     X_pred = pred_au[:, 0]
     Y_pred = pred_au[:, 1]
@@ -600,15 +684,29 @@ def xyz_to_radec(pred_au):
     
     return results_df
 
-def get_angular_error_arcsec(df, ts):
+def get_angular_error_arcsec(df: pd.DataFrame, ts) -> np.ndarray:
     """
     Calculates the 3D positional error magnitude in AU.
     
-    NOTE: Calculating true angular separation requires a full ephemeris load and 
-    observer definition, which is complex here. We report the magnitude of the 
-    positional error vector in AU as a primary metric.
+    Args:
+        df: DataFrame containing both actual and predicted XYZ coordinates
+        ts: Skyfield timescale (currently unused but kept for API compatibility)
+        
+    Returns:
+        Array of position errors in AU
+    
+    Note:
+        Calculating true angular separation requires a full ephemeris load and 
+        observer definition, which is complex. We report the magnitude of the 
+        positional error vector in AU as a primary metric.
     """
     print("Calculating 3D positional error magnitude...")
+    
+    # Validate required columns exist
+    required_cols = ['X_au', 'Y_au', 'Z_au', 'X_pred', 'Y_pred', 'Z_pred']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise ValueError(f"Missing required columns: {missing_cols}")
     
     # Ground Truth Positions
     actual_xyz_au = df[['X_au', 'Y_au', 'Z_au']].values.T
@@ -625,10 +723,20 @@ def get_angular_error_arcsec(df, ts):
     # Return the magnitude array
     return df['Pos_Error_AU']
 
-def plot_error_over_time(df, planet, error_col='Pos_Error_AU', title='3D Position Error Over Time', ylabel='Error (AU)'):
+def plot_error_over_time(df: pd.DataFrame, planet: str, error_col: str = 'Pos_Error_AU', 
+                        title: str = '3D Position Error Over Time', ylabel: str = 'Error (AU)') -> None:
     """
     Plots the error metric over the prediction time range.
+    
+    Args:
+        df: DataFrame containing error data
+        planet: Planet name for the title
+        error_col: Column name containing error values
+        title: Plot title
+        ylabel: Y-axis label
     """
+    import matplotlib.pyplot as plt
+    
     plt.figure(figsize=(14, 6))
     plt.plot(df['Time_UTC'], df[error_col], label=f'{error_col}', color='#3b82f6')
     plt.title(f'{planet.capitalize()} {title}', fontsize=16)

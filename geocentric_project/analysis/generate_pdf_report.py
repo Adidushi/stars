@@ -1,6 +1,12 @@
+"""
+PDF report generation for geocentric orbit prediction results.
 
+This module creates a summary PDF report with visualizations and metrics.
+"""
 import sys
 import os
+from typing import Optional
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,14 +18,27 @@ from datetime import datetime
 sys.path.append(os.getcwd())
 import stars_utils
 
-def safe_load_df(planet):
+
+def safe_load_df(planet: str) -> Optional[pd.DataFrame]:
+    """
+    Safely load a processed planet dataset from CSV.
+    
+    Args:
+        planet: Name of the planet (e.g., 'mars', 'venus')
+        
+    Returns:
+        DataFrame if file exists, None otherwise
+    """
     path = f'data/{planet}_processed.csv'
     if os.path.exists(path):
         return pd.read_csv(path)
     print(f"Warning: {path} not found.")
     return None
 
-def generate_pdf_report():
+
+def generate_pdf_report() -> None:
+    """Generate a comprehensive PDF report of model performance and visualizations."""
+    os.makedirs('summary', exist_ok=True)
     output_file = "summary/Geocentric_Orbit_Report.pdf"
     print(f"📄 Generating PDF Report: {output_file}...")
     
@@ -50,47 +69,17 @@ def generate_pdf_report():
         for planet in planets:
             df = safe_load_df(planet)
             if df is not None:
-                # Calculate simple MAE on whatever prediction data exists
-                # Note: The processed CSV stores the training data. 
-                # Ideally we need the cached predictions or we re-calculate.
-                # For this report, we'll re-calculate the residuals from the LAST RUN (saved in CSV if possible?)
-                # Actually, the 'processed.csv' is just inputs/targets, not predictions.
-                # To be accurate, we should load the models. But for speed/robustness in this script,
-                # let's assume we want to visualize the DATA QUALITY and the Physics Residuals (Inputs)
-                # OR we accept we need to load models to show prediction error.
-                
-                # Let's load models to show True Prediction Error.
-                try:
-                    # We need to re-run prediction logic briefly
-                    # Replicating minimal prediction logic
-                    import tensorflow as tf
-                    from sklearn.preprocessing import StandardScaler
-                    
-                    model_path = f'models/{planet}_geocentric.keras'
-                    if os.path.exists(model_path):
-                        model = tf.keras.models.load_model(model_path)
-                        
-                        # Features
-                        # (Simplified feature getter - must match training script exactly)
-                        # We'll skip model loading to avoid complexity/errors in this report script
-                        # and instead visualize the PHYSICS RESIDUALS (Kepler vs Truth) 
-                        # and mention the ML improvement in text.
-                        
-                        # WAIT! The user wants "relevant visualizations" of the PROJECT.
-                        # Showing the raw Kepler error is useful context.
-                        # But showing the Model error is better.
-                        # Let's rely on the CSV having 'Res_X' etc which are the TARGETS (Kepler Error).
-                        # We can show "Baseline Kepler Error" vs "Time".
-                        pass
-                except:
-                    pass
-
-                # Calculate Baseline Kepler MAE (Physical complexity)
-                # Res_X = True - Kepler
+                # Calculate Baseline Kepler MAE (showing the residuals we're trying to predict)
+                # The CSV contains Res_X, Res_Y, Res_Z which are (True - Kepler)
+                # This represents the complexity the ML model needs to learn
                 kepler_err = np.sqrt(df['Res_X']**2 + df['Res_Y']**2 + df['Res_Z']**2)
                 mean_kepler_err = kepler_err.mean()
                 
-                table_data.append([planet.capitalize(), f"{mean_kepler_err:.4f} AU", "Deep learning Target"])
+                table_data.append([
+                    planet.capitalize(), 
+                    f"{mean_kepler_err:.4f} AU", 
+                    "Kepler Baseline Error"
+                ])
 
         # Draw Table
         if table_data:
